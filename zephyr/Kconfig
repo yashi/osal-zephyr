@@ -1,0 +1,23 @@
+# cFS OSAL -- Core Flight System : Operating System Abstraction Layer
+
+# Copyright (c) 2025 Space Cubics
+# SPDX-License-Identifier: Apache-2.0
+
+config CFS_OSAL
+	bool "Enable cFS OSAL Support"
+	help
+	  This option enables the Core Flight System (cFS) Operating System Abstraction Layer (OSAL).
+
+if CFS_OSAL
+
+module = CFS_OSAL
+module-str = cfs_osal
+source "subsys/logging/Kconfig.template.log_config"
+
+config APP_LINK_WITH_OSAL_PUBLIC_API
+	bool "Link 'app' with OSAL public API"
+	default y
+	help
+	  Add OSAL public header files to the 'app' include path.
+
+endif # CFS_OSAL
