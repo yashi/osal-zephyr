@@ -598,8 +598,8 @@ int32 OS_ObjectIdFindNextFree(OS_object_token_t *token)
     uint32              serial;
     uint32              i;
     int32               return_code;
-    OS_common_record_t *obj = NULL;
-    OS_objtype_state_t *objtype_state;
+    OS_common_record_t *obj           = NULL;
+    OS_objtype_state_t *objtype_state = NULL;
 
     base_id = OS_GetBaseForObjectType(token->obj_type);
     max_id  = OS_GetMaxForObjectType(token->obj_type);
