@@ -5,6 +5,7 @@
 ######################################################################
 
 add_library(osal_generic-zephyr_impl OBJECT
+	src/bsp_console.c
 	src/bsp_start.c
 )
 
