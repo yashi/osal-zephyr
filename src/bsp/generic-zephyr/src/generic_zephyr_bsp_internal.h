@@ -9,10 +9,4 @@
 
 #include "bsp-impl.h"
 
-typedef struct
-{
-} OS_BSP_GenericZephyrGlobalData_t;
-
-extern OS_BSP_GenericZephyrGlobalData_t OS_BSP_GenericZephyrGlobal;
-
 #endif /* GENERIC_ZEPHYR_BSP_INTERNAL_H */

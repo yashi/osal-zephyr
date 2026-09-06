@@ -5,6 +5,7 @@
 
 config CFS_OSAL
 	bool "Enable cFS OSAL Support"
+	depends on MULTITHREADING
 	help
 	  This option enables the Core Flight System (cFS) Operating System Abstraction Layer (OSAL).
 
