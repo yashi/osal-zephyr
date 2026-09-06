@@ -8,6 +8,7 @@
 
 # The basic set of files which are always built
 set(ZEPHYR_BASE_SRCLIST
+    src/os-impl-console.c
     src/os-impl-idmap.c
     src/os-impl-tasks.c
 )

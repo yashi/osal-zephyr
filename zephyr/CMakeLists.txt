@@ -1,6 +1,12 @@
 if(CONFIG_CFS_OSAL)
   set(OSAL_SYSTEM_BSPTYPE "generic-zephyr")
 
+  # The initial console provider has no helper task. Keep command-line and
+  # OSAL_CONFIGURATION_FILE overrides available; async creation reports that
+  # the requested capability is not implemented.
+  set(OSAL_CONFIG_CONSOLE_ASYNC FALSE CACHE BOOL
+      "Controls spawning of a separate utility task for OS_printf")
+
   add_subdirectory(${ZEPHYR_CURRENT_MODULE_DIR} build)
 
   # We can't use zephyr_interface_library_named() on osal_public_api
