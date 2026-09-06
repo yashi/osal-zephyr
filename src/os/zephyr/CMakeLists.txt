@@ -8,6 +8,7 @@
 
 # The basic set of files which are always built
 set(ZEPHYR_BASE_SRCLIST
+    src/os-impl-binsem.c
     src/os-impl-clock.c
     src/os-impl-common.c
     src/os-impl-console.c
