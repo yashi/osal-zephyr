@@ -14,6 +14,9 @@ typedef struct
 {
     struct k_mutex   lock;
     struct k_condvar changed;
+    osal_id_t        object_id;
+    bool             initialized;
+    bool             active;
     uint32           current_value;
     uint32           flush_request;
 } OS_impl_binsem_internal_record_t;
