@@ -9,12 +9,16 @@
 #include "osconfig.h"
 #include "common_types.h"
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 
 typedef struct
 {
     struct k_mutex lock;
     struct k_sem   sem;
+    osal_id_t      object_id;
+    atomic_t       users;
     bool           initialized;
+    bool           active;
 } OS_impl_countsem_internal_record_t;
 
 extern OS_impl_countsem_internal_record_t OS_impl_count_sem_table[OS_MAX_COUNT_SEMAPHORES];
