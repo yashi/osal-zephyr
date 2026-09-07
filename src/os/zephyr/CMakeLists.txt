@@ -13,6 +13,7 @@ set(ZEPHYR_BASE_SRCLIST
     src/os-impl-common.c
     src/os-impl-condvar.c
     src/os-impl-console.c
+    src/os-impl-countsem.c
     src/os-impl-idmap.c
     src/os-impl-mutex.c
     src/os-impl-tasks.c
