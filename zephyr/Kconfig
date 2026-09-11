@@ -6,11 +6,24 @@
 config CFS_OSAL
 	bool "Enable cFS OSAL Support"
 	depends on MULTITHREADING
+	depends on PREEMPT_ENABLED
+	depends on NUM_METAIRQ_PRIORITIES <= NUM_COOP_PRIORITIES
 	select PRINTK
 	help
 	  This option enables the Core Flight System (cFS) Operating System Abstraction Layer (OSAL).
 
 if CFS_OSAL
+
+config CFS_OSAL_TASK_REAPER_STACK_SIZE
+	int "OSAL task reaper stack size"
+	default 2048
+	range 1024 65536
+	help
+	  Stack size for the lazily started native task retirement thread.
+	  Task thread objects and the reaper's storage are statically reserved.
+	  Supply a static-duration K_KERNEL_STACK_DEFINE object and its
+	  K_KERNEL_STACK_SIZEOF usable size to OS_TaskCreate. NULL stacks and
+	  task creation with USERSPACE are unsupported.
 
 module = CFS_OSAL
 module-str = cfs_osal

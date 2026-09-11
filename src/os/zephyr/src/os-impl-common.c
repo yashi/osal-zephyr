@@ -7,6 +7,7 @@
 
 #include "os-shared-common.h"
 #include "os-impl-idmap.h"
+#include "os-impl-tasks.h"
 
 K_SEM_DEFINE(OS_shutdown_sem, 0, 1);
 
@@ -27,6 +28,12 @@ int32 OS_API_Impl_Init(osal_objtype_t idtype)
             break;
 
         case OS_OBJECT_TYPE_OS_TASK:
+            if (OS_Zephyr_TaskAPI_Impl_Init() != OS_SUCCESS)
+            {
+                return OS_ERROR;
+            }
+            break;
+
         case OS_OBJECT_TYPE_OS_QUEUE:
         case OS_OBJECT_TYPE_OS_COUNTSEM:
         case OS_OBJECT_TYPE_OS_BINSEM:
