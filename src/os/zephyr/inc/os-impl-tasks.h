@@ -27,8 +27,11 @@
  * Caller stacks are never freed. Lifetime must also exclude native threads
  * or other users outside OSAL, whose stack ownership is not tracked here.
  *
- * A NULL pointer returns OS_ERR_NOT_IMPLEMENTED. Every task's k_thread is
- * statically stored. CONFIG_USERSPACE task creation is unsupported.
+ * A NULL pointer returns OS_ERR_NOT_IMPLEMENTED unless
+ * CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS is enabled. In that mode only the
+ * stack is allocated, allocation failure returns OS_ERROR, and OSAL frees
+ * the owned stack after join. Every task's k_thread is statically stored.
+ * CONFIG_USERSPACE task creation is unsupported in both configurations.
  */
 int32 OS_Zephyr_TaskAPI_Impl_Init(void);
 

@@ -26,6 +26,7 @@ typedef struct
     struct k_thread        *thread;
     k_thread_stack_t       *stack;
     size_t                  stack_extent;
+    bool                    stack_owned;
     osal_id_t               object_id;
     OS_Zephyr_task_state_t   state;
 } OS_impl_task_internal_record_t;
@@ -72,6 +73,12 @@ static void OS_Zephyr_TaskReclaim(OS_impl_task_internal_record_t *impl)
     {
         k_panic();
     }
+#ifdef CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS
+    if (impl->stack_owned && k_thread_stack_free(impl->stack) != 0)
+    {
+        k_panic();
+    }
+#endif
 
     key = k_spin_lock(&OS_task_lock);
     /* Keep the stack claim and identity until this generation has joined.
@@ -80,6 +87,7 @@ static void OS_Zephyr_TaskReclaim(OS_impl_task_internal_record_t *impl)
     impl->thread           = NULL;
     impl->stack            = NULL;
     impl->stack_extent      = 0;
+    impl->stack_owned       = false;
     impl->object_id        = OS_OBJECT_ID_UNDEFINED;
     impl->state            = OS_ZEPHYR_TASK_FREE;
     k_spin_unlock(&OS_task_lock, key);
@@ -202,11 +210,12 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     size_t                          extent;
     int32                           status;
     bool                            available;
+    bool                            owned = false;
     uint32                          options = 0;
 
     /* User-mode object permissions and ownership are outside this provider. */
     if (IS_ENABLED(CONFIG_USERSPACE) || (flags & ~OS_FP_ENABLED) != 0 ||
-        task->stack_pointer == NULL)
+        (task->stack_pointer == NULL && !IS_ENABLED(CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS)))
     {
         return OS_ERR_NOT_IMPLEMENTED;
     }
@@ -247,6 +256,13 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
      * may have freed its public ID but still be on its stack. Reclamation
      * never acquires shared table locks. */
     k_sem_take(&impl->reusable, K_FOREVER);
+#ifdef CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS
+    if (stack == NULL)
+    {
+        stack = k_thread_stack_alloc(task->stack_size, 0);
+        owned = true;
+    }
+#endif
     if (stack == NULL)
     {
         k_sem_give(&impl->reusable);
@@ -261,10 +277,17 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     {
         impl->stack        = stack;
         impl->stack_extent = extent;
+        impl->stack_owned  = owned;
     }
     k_spin_unlock(&OS_task_lock, key);
     if (!available)
     {
+#ifdef CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS
+        if (owned && k_thread_stack_free(stack) != 0)
+        {
+            k_panic();
+        }
+#endif
         k_sem_give(&impl->reusable);
         return OS_ERROR;
     }

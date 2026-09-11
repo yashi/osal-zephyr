@@ -14,6 +14,20 @@ config CFS_OSAL
 
 if CFS_OSAL
 
+config CFS_OSAL_DYNAMIC_TASK_STACKS
+	bool "Allocate OSAL task stacks when no stack is supplied"
+	default n
+	select THREAD_STACK_INFO
+	select DYNAMIC_THREAD
+	select DYNAMIC_THREAD_ALLOC
+	help
+	  Allow OS_TaskCreate to allocate a supervisor stack when its stack
+	  pointer is NULL. Configure HEAP_MEM_POOL_SIZE for the application's
+	  simultaneous task stacks and other heap users. Native thread objects
+	  always use static storage; caller-supplied stacks are never freed.
+	  With this option disabled, NULL stack requests return
+	  OS_ERR_NOT_IMPLEMENTED and task storage uses no heap allocations.
+
 config CFS_OSAL_TASK_REAPER_STACK_SIZE
 	int "OSAL task reaper stack size"
 	default 2048
@@ -22,8 +36,8 @@ config CFS_OSAL_TASK_REAPER_STACK_SIZE
 	  Stack size for the lazily started native task retirement thread.
 	  Task thread objects and the reaper's storage are statically reserved.
 	  Supply a static-duration K_KERNEL_STACK_DEFINE object and its
-	  K_KERNEL_STACK_SIZEOF usable size to OS_TaskCreate. NULL stacks and
-	  task creation with USERSPACE are unsupported.
+	  K_KERNEL_STACK_SIZEOF usable size to OS_TaskCreate, or enable optional
+	  dynamic task stacks. Task creation with USERSPACE is unsupported.
 
 module = CFS_OSAL
 module-str = cfs_osal
