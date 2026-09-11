@@ -7,6 +7,7 @@
 #include <zephyr/kernel.h>
 
 #include "os-impl-mutex.h"
+#include "os-impl-tasks.h"
 #include "os-shared-mutex.h"
 #include "os-shared-idmap.h"
 
@@ -26,6 +27,8 @@ int32 OS_MutSemCreate_Impl(const OS_object_token_t *token, uint32 options)
 {
     OS_impl_mutex_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     impl = OS_OBJECT_TABLE_GET(OS_impl_mutex_table, *token);
 
     /* Shared allocation serializes first initialization. Never reset a
@@ -34,20 +37,20 @@ int32 OS_MutSemCreate_Impl(const OS_object_token_t *token, uint32 options)
     {
         if (k_mutex_init(&impl->lock) != 0)
         {
-            return OS_SEM_FAILURE;
+            return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
         }
         impl->initialized = true;
     }
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
 
     if (impl->active)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
 
     impl->object_id = OS_ObjectIdFromToken(token);
@@ -55,40 +58,44 @@ int32 OS_MutSemCreate_Impl(const OS_object_token_t *token, uint32 options)
     impl->active    = true;
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_MutSemDelete_Impl(const OS_object_token_t *token)
 {
     OS_impl_mutex_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_mutex_table, *token);
 
+    OS_Zephyr_TaskEnter();
+
     /* Never wait for application ownership under the shared table lock.
      * A recursive probe can succeed for the owner, so depth must also be
      * zero. Native handoff keeps a queued acquirer protected as an owner. */
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_MutexMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
     if (impl->depth != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
 
     impl->active = false;
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_MutSemGive_Impl(const OS_object_token_t *token)
 {
     OS_impl_mutex_internal_record_t *impl;
+
+    OS_Zephyr_TaskEnter();
 
     impl = OS_OBJECT_TABLE_GET(OS_impl_mutex_table, *token);
 
@@ -96,59 +103,63 @@ int32 OS_MutSemGive_Impl(const OS_object_token_t *token)
      * checks without reading Zephyr's private owner or lock-count fields. */
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_MutexMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
     if (impl->depth == 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
 
     --impl->depth;
     k_mutex_unlock(&impl->lock); /* Release the probe acquisition. */
     k_mutex_unlock(&impl->lock); /* Release one application acquisition. */
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_MutSemTake_Impl(const OS_object_token_t *token)
 {
     OS_impl_mutex_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     impl = OS_OBJECT_TABLE_GET(OS_impl_mutex_table, *token);
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_MutexMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
     /* Reserve one native recursion level for Give/Delete probes and the
      * next Take's validation, so native lock_count cannot wrap first. */
     if (impl->depth >= UINT32_MAX - 1U)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     ++impl->depth;
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_MutSemGetInfo_Impl(const OS_object_token_t *token, OS_mut_sem_prop_t *mut_prop)
 {
+    OS_Zephyr_TaskEnter();
+
     /* The shared layer fills in name/creator; there is nothing
      * Zephyr-specific to report. */
     (void)token;
     (void)mut_prop;
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }

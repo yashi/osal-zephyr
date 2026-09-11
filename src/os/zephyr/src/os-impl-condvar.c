@@ -9,6 +9,7 @@
 #include "os-shared-condvar.h"
 #include "os-shared-idmap.h"
 #include "os-impl-condvar.h"
+#include "os-impl-tasks.h"
 
 OS_impl_condvar_internal_record_t OS_impl_condvar_table[OS_MAX_CONDVARS];
 
@@ -26,6 +27,8 @@ int32 OS_CondVarCreate_Impl(const OS_object_token_t *token, uint32 options)
 {
     OS_impl_condvar_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_condvar_table, *token);
 
+    OS_Zephyr_TaskEnter();
+
     ARG_UNUSED(options);
 
     /* Shared allocation serializes first initialization. Delayed calls may
@@ -36,25 +39,25 @@ int32 OS_CondVarCreate_Impl(const OS_object_token_t *token, uint32 options)
         if (k_mutex_init(&impl->lock) != 0 || k_mutex_init(&impl->state_lock) != 0 ||
             k_condvar_init(&impl->changed) != 0)
         {
-            return OS_ERROR;
+            return OS_Zephyr_TaskLeaveResult(OS_ERROR);
         }
         impl->initialized = true;
     }
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (k_mutex_lock(&impl->state_lock, K_FOREVER) != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (impl->active)
     {
         k_mutex_unlock(&impl->state_lock);
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     impl->object_id = OS_ObjectIdFromToken(token);
@@ -64,7 +67,7 @@ int32 OS_CondVarCreate_Impl(const OS_object_token_t *token, uint32 options)
     k_mutex_unlock(&impl->state_lock);
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_CondVarDelete_Impl(const OS_object_token_t *token)
@@ -72,16 +75,18 @@ int32 OS_CondVarDelete_Impl(const OS_object_token_t *token)
     OS_impl_condvar_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_condvar_table, *token);
     int32                             status;
 
+    OS_Zephyr_TaskEnter();
+
     /* The shared table is locked here. Never wait for application ownership
      * or a notifier holding state_lock. A failed delete restores the ID. */
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (k_mutex_lock(&impl->state_lock, K_NO_WAIT) != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (!OS_Zephyr_CondVarMatches(impl, token))
     {
@@ -99,7 +104,7 @@ int32 OS_CondVarDelete_Impl(const OS_object_token_t *token)
     k_mutex_unlock(&impl->state_lock);
     k_mutex_unlock(&impl->lock);
 
-    return status;
+    return OS_Zephyr_TaskLeaveResult(status);
 }
 
 int32 OS_CondVarLock_Impl(const OS_object_token_t *token)
@@ -107,14 +112,16 @@ int32 OS_CondVarLock_Impl(const OS_object_token_t *token)
     OS_impl_condvar_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_condvar_table, *token);
     int32                             status;
 
+    OS_Zephyr_TaskEnter();
+
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (k_mutex_lock(&impl->state_lock, K_FOREVER) != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (!OS_Zephyr_CondVarMatches(impl, token))
     {
@@ -136,7 +143,7 @@ int32 OS_CondVarLock_Impl(const OS_object_token_t *token)
         k_mutex_unlock(&impl->lock);
     }
 
-    return status;
+    return OS_Zephyr_TaskLeaveResult(status);
 }
 
 int32 OS_CondVarUnlock_Impl(const OS_object_token_t *token)
@@ -144,16 +151,18 @@ int32 OS_CondVarUnlock_Impl(const OS_object_token_t *token)
     OS_impl_condvar_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_condvar_table, *token);
     int32                             status;
 
+    OS_Zephyr_TaskEnter();
+
     /* Probe ownership without reading native private fields. The recursive
      * acquisition must be released even if the token or depth is invalid. */
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (k_mutex_lock(&impl->state_lock, K_FOREVER) != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (!OS_Zephyr_CondVarMatches(impl, token))
     {
@@ -175,7 +184,7 @@ int32 OS_CondVarUnlock_Impl(const OS_object_token_t *token)
         k_mutex_unlock(&impl->lock); /* Release one application acquisition. */
     }
 
-    return status;
+    return OS_Zephyr_TaskLeaveResult(status);
 }
 
 static int32 OS_Zephyr_CondVarNotify(const OS_object_token_t *token, bool broadcast)
@@ -206,12 +215,16 @@ static int32 OS_Zephyr_CondVarNotify(const OS_object_token_t *token, bool broadc
 
 int32 OS_CondVarSignal_Impl(const OS_object_token_t *token)
 {
-    return OS_Zephyr_CondVarNotify(token, false);
+    OS_Zephyr_TaskEnter();
+
+    return OS_Zephyr_TaskLeaveResult(OS_Zephyr_CondVarNotify(token, false));
 }
 
 int32 OS_CondVarBroadcast_Impl(const OS_object_token_t *token)
 {
-    return OS_Zephyr_CondVarNotify(token, true);
+    OS_Zephyr_TaskEnter();
+
+    return OS_Zephyr_TaskLeaveResult(OS_Zephyr_CondVarNotify(token, true));
 }
 
 int32 OS_CondVarWait_Impl(const OS_object_token_t *token)
@@ -219,14 +232,16 @@ int32 OS_CondVarWait_Impl(const OS_object_token_t *token)
     OS_impl_condvar_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_condvar_table, *token);
     int32                             status;
 
+    OS_Zephyr_TaskEnter();
+
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (k_mutex_lock(&impl->state_lock, K_FOREVER) != 0)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
     if (!OS_Zephyr_CondVarMatches(impl, token))
     {
@@ -248,7 +263,7 @@ int32 OS_CondVarWait_Impl(const OS_object_token_t *token)
     k_mutex_unlock(&impl->lock); /* Drop only the probe before native Wait. */
     if (status != OS_SUCCESS)
     {
-        return status;
+        return OS_Zephyr_TaskLeaveResult(status);
     }
 
     status = k_condvar_wait(&impl->changed, &impl->lock, K_FOREVER);
@@ -262,25 +277,29 @@ int32 OS_CondVarWait_Impl(const OS_object_token_t *token)
     --impl->waiters;
     k_mutex_unlock(&impl->state_lock);
 
-    return status == 0 ? OS_SUCCESS : OS_ERROR;
+    return OS_Zephyr_TaskLeaveResult(status == 0 ? OS_SUCCESS : OS_ERROR);
 }
 
 int32 OS_CondVarTimedWait_Impl(const OS_object_token_t *token, const OS_time_t *abs_wakeup_time)
 {
+    OS_Zephyr_TaskEnter();
+
     ARG_UNUSED(token);
     ARG_UNUSED(abs_wakeup_time);
 
     /* OSAL specifies an absolute OS_GetLocalTime() deadline. Zephyr's
      * absolute kernel timeouts use uptime, and the clock-change notification
      * protocol is not yet implemented. Preserve application ownership. */
-    return OS_ERR_NOT_IMPLEMENTED;
+    return OS_Zephyr_TaskLeaveResult(OS_ERR_NOT_IMPLEMENTED);
 }
 
 int32 OS_CondVarGetInfo_Impl(const OS_object_token_t *token, OS_condvar_prop_t *condvar_prop)
 {
+    OS_Zephyr_TaskEnter();
+
     ARG_UNUSED(token);
     ARG_UNUSED(condvar_prop);
 
     /* The shared GLOBAL token protects all currently reported properties. */
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }

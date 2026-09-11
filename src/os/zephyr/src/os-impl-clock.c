@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 
 #include "os-shared-clock.h"
+#include "os-impl-tasks.h"
 
 #if defined(CONFIG_SYS_CLOCK_EXISTS)
 K_MUTEX_DEFINE(OS_clock_lock);
@@ -88,9 +89,11 @@ int32 OS_GetLocalTime_Impl(OS_time_t *time_struct)
     int64 local_time;
     bool  valid;
 
+    OS_Zephyr_TaskEnter();
+
     if (k_mutex_lock(&OS_clock_lock, K_FOREVER) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     valid = OS_Zephyr_LocalTimeLocked(k_uptime_ticks(), &local_time);
@@ -98,26 +101,28 @@ int32 OS_GetLocalTime_Impl(OS_time_t *time_struct)
 
     if (!valid)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     time_struct->ticks = local_time;
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_SetLocalTime_Impl(const OS_time_t *time_struct)
 {
+    OS_Zephyr_TaskEnter();
+
     if (k_mutex_lock(&OS_clock_lock, K_FOREVER) != 0)
     {
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     OS_local_reference  = time_struct->ticks;
     OS_uptime_reference = k_uptime_ticks();
     k_mutex_unlock(&OS_clock_lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 #else
 int32 OS_GetMonotonicTime_Impl(OS_time_t *time_struct)

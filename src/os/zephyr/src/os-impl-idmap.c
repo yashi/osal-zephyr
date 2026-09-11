@@ -6,6 +6,7 @@
 #include <zephyr/kernel.h>
 
 #include "os-impl-idmap.h"
+#include "os-impl-tasks.h"
 
 typedef struct
 {
@@ -42,6 +43,7 @@ int32 OS_Zephyr_TableMutex_Init(osal_objtype_t idtype)
 
 void OS_Lock_Global_Impl(osal_objtype_t idtype)
 {
+    OS_Zephyr_TaskEnter();
     if (k_mutex_lock(&OS_impl_objtype_lock_table[idtype].mutex, K_FOREVER) != 0)
     {
         k_panic();
@@ -57,6 +59,7 @@ void OS_Unlock_Global_Impl(osal_objtype_t idtype)
     {
         k_panic();
     }
+    OS_Zephyr_TaskLeave();
 }
 
 void OS_WaitForStateChange_Impl(osal_objtype_t idtype, uint32 attempts)

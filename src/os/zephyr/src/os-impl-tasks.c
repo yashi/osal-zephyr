@@ -14,7 +14,8 @@ typedef enum
 {
     OS_ZEPHYR_TASK_FREE,
     OS_ZEPHYR_TASK_ACTIVE,
-    OS_ZEPHYR_TASK_RETIRED
+    OS_ZEPHYR_TASK_RETIRED,
+    OS_ZEPHYR_TASK_CLOSING
 } OS_Zephyr_task_state_t;
 
 typedef struct
@@ -29,6 +30,7 @@ typedef struct
     bool                    stack_owned;
     osal_id_t               object_id;
     OS_Zephyr_task_state_t   state;
+    uint32                  internal_depth;
 } OS_impl_task_internal_record_t;
 
 typedef struct
@@ -63,6 +65,44 @@ static OS_impl_task_internal_record_t *OS_Zephyr_TaskFind(k_tid_t thread)
     return NULL;
 }
 
+void OS_Zephyr_TaskEnter(void)
+{
+    OS_impl_task_internal_record_t *impl;
+    k_spinlock_key_t                key;
+    bool                            closing;
+
+    key     = k_spin_lock(&OS_task_lock);
+    impl    = OS_Zephyr_TaskFind(k_current_get());
+    closing = impl != NULL && impl->state == OS_ZEPHYR_TASK_CLOSING;
+    if (impl != NULL && !closing)
+    {
+        ++impl->internal_depth;
+    }
+    k_spin_unlock(&OS_task_lock, key);
+
+    /* No provider resource has been acquired. The committed deleter owns the
+     * remaining lifetime and will abort this thread, including this wait. */
+    while (closing)
+    {
+        k_sleep(K_FOREVER);
+    }
+}
+
+void OS_Zephyr_TaskLeave(void)
+{
+    OS_impl_task_internal_record_t *impl;
+    k_spinlock_key_t                key;
+
+    key  = k_spin_lock(&OS_task_lock);
+    impl = OS_Zephyr_TaskFind(k_current_get());
+    if (impl != NULL)
+    {
+        __ASSERT_NO_MSG(impl->internal_depth != 0);
+        --impl->internal_depth;
+    }
+    k_spin_unlock(&OS_task_lock, key);
+}
+
 /* Join is the safety condition: stack-free's live-thread check does not
  * recognize the reserved MPU guard prefix on all Zephyr architectures. */
 static void OS_Zephyr_TaskReclaim(OS_impl_task_internal_record_t *impl)
@@ -89,6 +129,7 @@ static void OS_Zephyr_TaskReclaim(OS_impl_task_internal_record_t *impl)
     impl->stack_extent      = 0;
     impl->stack_owned       = false;
     impl->object_id        = OS_OBJECT_ID_UNDEFINED;
+    impl->internal_depth   = 0;
     impl->state            = OS_ZEPHYR_TASK_FREE;
     k_spin_unlock(&OS_task_lock, key);
     k_sem_give(&impl->reusable);
@@ -213,17 +254,18 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     bool                            owned = false;
     uint32                          options = 0;
 
+    OS_Zephyr_TaskEnter();
     /* User-mode object permissions and ownership are outside this provider. */
     if (IS_ENABLED(CONFIG_USERSPACE) || (flags & ~OS_FP_ENABLED) != 0 ||
         (task->stack_pointer == NULL && !IS_ENABLED(CONFIG_CFS_OSAL_DYNAMIC_TASK_STACKS)))
     {
-        return OS_ERR_NOT_IMPLEMENTED;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_NOT_IMPLEMENTED);
     }
     if ((flags & OS_FP_ENABLED) != 0)
     {
         if (!IS_ENABLED(CONFIG_FPU) || !IS_ENABLED(CONFIG_FPU_SHARING))
         {
-            return OS_ERR_NOT_IMPLEMENTED;
+            return OS_Zephyr_TaskLeaveResult(OS_ERR_NOT_IMPLEMENTED);
         }
         options |= K_FP_REGS;
         if (IS_ENABLED(CONFIG_X86_SSE))
@@ -235,7 +277,7 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     status = OS_Zephyr_TaskStackGeometry(task, &extent);
     if (status != OS_SUCCESS)
     {
-        return status;
+        return OS_Zephyr_TaskLeaveResult(status);
     }
     stack = task->stack_pointer;
     if (stack != NULL)
@@ -248,7 +290,7 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
         k_spin_unlock(&OS_task_lock, key);
         if (!available)
         {
-            return OS_ERROR;
+            return OS_Zephyr_TaskLeaveResult(OS_ERROR);
         }
     }
 
@@ -266,7 +308,7 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     if (stack == NULL)
     {
         k_sem_give(&impl->reusable);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     /* Reserve before native creation can touch the stack. Different shared
@@ -289,7 +331,7 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
         }
 #endif
         k_sem_give(&impl->reusable);
-        return OS_ERROR;
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
     }
 
     /* Start the dedicated reaper on first successful reservation only. It
@@ -310,19 +352,41 @@ int32 OS_TaskCreate_Impl(const OS_object_token_t *token, uint32 flags)
     key                  = k_spin_lock(&OS_task_lock);
     impl->thread         = thread;
     impl->object_id      = OS_ObjectIdFromToken(token);
+    impl->internal_depth = 0;
     impl->state          = OS_ZEPHYR_TASK_ACTIVE;
     k_spin_unlock(&OS_task_lock, key);
 
     /* The complete provisional identity precedes all execution, including a
      * failure in shared prepare. Entry waits for shared create finalization. */
     k_thread_start(thread);
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_TaskDelete_Impl(const OS_object_token_t *token)
 {
-    ARG_UNUSED(token);
-    return OS_ERR_NOT_IMPLEMENTED;
+    OS_impl_task_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_task_table, *token);
+    k_spinlock_key_t                key;
+    k_tid_t                         thread;
+
+    OS_Zephyr_TaskEnter();
+    key = k_spin_lock(&OS_task_lock);
+    if (impl->state != OS_ZEPHYR_TASK_ACTIVE || impl->thread == k_current_get() ||
+        !OS_ObjectIdEqual(impl->object_id, OS_ObjectIdFromToken(token)) || impl->internal_depth != 0)
+    {
+        k_spin_unlock(&OS_task_lock, key);
+        return OS_Zephyr_TaskLeaveResult(OS_ERROR);
+    }
+    impl->state = OS_ZEPHYR_TASK_CLOSING;
+    thread      = impl->thread;
+    k_spin_unlock(&OS_task_lock, key);
+
+    /* Closing and internal entry are serialized. No new internal resource
+     * can be acquired. Application-owned resources remain the caller's
+     * responsibility, as with native RTOS task deletion. After abort there
+     * is no rollback: join and reclaim before shared finalization. */
+    k_thread_abort(thread);
+    OS_Zephyr_TaskReclaim(impl);
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_TaskDetach_Impl(const OS_object_token_t *token)
@@ -361,14 +425,16 @@ void OS_TaskExit_Impl(void)
         /* Shared exit normally detaches first, but its GLOBAL lookup is
          * forbidden during shutdown and can time out behind a reserved ID.
          * Complete self-retirement with an EXCLUSIVE transaction, which is
-         * permitted during shutdown. */
+         * permitted during shutdown. Guard the whole fallback so another
+         * deleter must either roll back or commit before this entry. */
+        OS_Zephyr_TaskEnter();
         do
         {
             status = OS_ObjectIdGetById(OS_LOCK_MODE_EXCLUSIVE, OS_OBJECT_TYPE_OS_TASK, object_id, &token);
             if (status == OS_ERR_OBJECT_IN_USE)
             {
-                /* Wait for the reserved transaction to release the ID.
-                 * Never retire a still-published ID. */
+                /* The reserved transaction can observe our internal depth
+                 * and restore the ID. Never retire a still-published ID. */
                 k_sleep(K_MSEC(1));
             }
         } while (status == OS_ERR_OBJECT_IN_USE);
@@ -377,6 +443,7 @@ void OS_TaskExit_Impl(void)
             status = OS_TaskDetach_Impl(&token);
             status = OS_ObjectIdFinalizeDelete(status, &token);
         }
+        OS_Zephyr_TaskLeave();
         if (status != OS_SUCCESS)
         {
             k_panic();
@@ -417,8 +484,9 @@ int32 OS_TaskSetPriority_Impl(const OS_object_token_t *token, osal_priority_t ne
 {
     OS_impl_task_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_task_table, *token);
 
+    OS_Zephyr_TaskEnter();
     k_thread_priority_set(impl->thread, OS_Zephyr_TaskPriority(new_priority));
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_TaskMatch_Impl(const OS_object_token_t *token)

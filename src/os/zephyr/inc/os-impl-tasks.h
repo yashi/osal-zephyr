@@ -35,6 +35,19 @@
  */
 int32 OS_Zephyr_TaskAPI_Impl_Init(void);
 
+/* Protect provider-owned resources from native task abort. Enter before
+ * acquiring an internal resource, and leave after its final release. These
+ * calls nest and do nothing for threads not created by OSAL. A task whose
+ * deletion has committed parks in Enter until the deleter aborts it. */
+void OS_Zephyr_TaskEnter(void);
+void OS_Zephyr_TaskLeave(void);
+
+static inline int32 OS_Zephyr_TaskLeaveResult(int32 status)
+{
+    OS_Zephyr_TaskLeave();
+    return status;
+}
+
 /* Timebase helpers must unregister before terminating their native thread. */
 void OS_Zephyr_TaskUnregister(void);
 

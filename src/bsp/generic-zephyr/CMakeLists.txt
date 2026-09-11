@@ -9,6 +9,10 @@ add_library(osal_generic-zephyr_impl OBJECT
 	src/bsp_start.c
 )
 
+target_include_directories(osal_generic-zephyr_impl PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../os/zephyr/inc
+)
+
 target_link_libraries(osal_generic-zephyr_impl PUBLIC zephyr_interface)
 add_dependencies(osal_generic-zephyr_impl zephyr_generated_headers)
 

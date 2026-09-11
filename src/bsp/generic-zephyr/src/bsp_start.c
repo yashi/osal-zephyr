@@ -8,6 +8,7 @@
 #include <zephyr/kernel.h>
 
 #include "generic_zephyr_bsp_internal.h"
+#include "os-impl-tasks.h"
 
 static K_MUTEX_DEFINE(OS_BSP_GenericZephyrMutex);
 
@@ -21,6 +22,7 @@ static FUNC_NORETURN void OS_BSP_Abort(void)
 
 void OS_BSP_Lock_Impl(void)
 {
+    OS_Zephyr_TaskEnter();
     if (k_mutex_lock(&OS_BSP_GenericZephyrMutex, K_FOREVER) != 0)
     {
         OS_BSP_Abort();
@@ -33,6 +35,7 @@ void OS_BSP_Unlock_Impl(void)
     {
         OS_BSP_Abort();
     }
+    OS_Zephyr_TaskLeave();
 }
 
 void OS_BSP_Shutdown_Impl(void)

@@ -8,6 +8,7 @@
 #include <zephyr/sys/clock.h>
 
 #include "os-impl-binsem.h"
+#include "os-impl-tasks.h"
 #include "os-shared-binsem.h"
 #include "os-shared-idmap.h"
 
@@ -30,6 +31,8 @@ int32 OS_BinSemCreate_Impl(const OS_object_token_t *token, uint32 sem_initial_va
 {
     OS_impl_binsem_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     /* Matches the historical binary semaphore behavior: an out-of-range
      * initial value is silently normalized rather than rejected. */
     if (sem_initial_value > 1)
@@ -45,19 +48,19 @@ int32 OS_BinSemCreate_Impl(const OS_object_token_t *token, uint32 sem_initial_va
     {
         if (k_mutex_init(&impl->lock) != 0 || k_condvar_init(&impl->changed) != 0)
         {
-            return OS_SEM_FAILURE;
+            return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
         }
         impl->initialized = true;
     }
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (impl->active)
     {
         k_mutex_unlock(&impl->lock);
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
 
     impl->object_id     = OS_ObjectIdFromToken(token);
@@ -66,46 +69,50 @@ int32 OS_BinSemCreate_Impl(const OS_object_token_t *token, uint32 sem_initial_va
     impl->flush_request = 0;
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_BinSemDelete_Impl(const OS_object_token_t *token)
 {
     OS_impl_binsem_internal_record_t *impl = OS_OBJECT_TABLE_GET(OS_impl_bin_sem_table, *token);
 
+    OS_Zephyr_TaskEnter();
+
     /* A failed deletion leaves the old generation usable. A sleeping
      * waiter has released this lock and may be invalidated safely. */
     if (k_mutex_lock(&impl->lock, K_NO_WAIT) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_BinSemMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
 
     impl->active = false;
     k_condvar_broadcast(&impl->changed);
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_BinSemGive_Impl(const OS_object_token_t *token)
 {
     OS_impl_binsem_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     impl = OS_OBJECT_TABLE_GET(OS_impl_bin_sem_table, *token);
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_BinSemMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
 
     /* Binary semaphores are always set to "1" when given. */
@@ -117,23 +124,25 @@ int32 OS_BinSemGive_Impl(const OS_object_token_t *token)
 
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 int32 OS_BinSemFlush_Impl(const OS_object_token_t *token)
 {
     OS_impl_binsem_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     impl = OS_OBJECT_TABLE_GET(OS_impl_bin_sem_table, *token);
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_BinSemMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
 
     /* Bump the flush generation so any concurrent Take() sees it changed
@@ -143,7 +152,7 @@ int32 OS_BinSemFlush_Impl(const OS_object_token_t *token)
 
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
 
 /*
@@ -209,31 +218,37 @@ static int32 OS_Zephyr_BinSemTake_Impl(const OS_object_token_t *token, k_timepoi
 
 int32 OS_BinSemTake_Impl(const OS_object_token_t *token)
 {
-    return OS_Zephyr_BinSemTake_Impl(token, sys_timepoint_calc(K_FOREVER));
+    OS_Zephyr_TaskEnter();
+
+    return OS_Zephyr_TaskLeaveResult(OS_Zephyr_BinSemTake_Impl(token, sys_timepoint_calc(K_FOREVER)));
 }
 
 int32 OS_BinSemTimedWait_Impl(const OS_object_token_t *token, uint32 msecs)
 {
-    return OS_Zephyr_BinSemTake_Impl(token, sys_timepoint_calc(K_MSEC(msecs)));
+    OS_Zephyr_TaskEnter();
+
+    return OS_Zephyr_TaskLeaveResult(OS_Zephyr_BinSemTake_Impl(token, sys_timepoint_calc(K_MSEC(msecs))));
 }
 
 int32 OS_BinSemGetInfo_Impl(const OS_object_token_t *token, OS_bin_sem_prop_t *bin_prop)
 {
     OS_impl_binsem_internal_record_t *impl;
 
+    OS_Zephyr_TaskEnter();
+
     impl = OS_OBJECT_TABLE_GET(OS_impl_bin_sem_table, *token);
 
     if (k_mutex_lock(&impl->lock, K_FOREVER) != 0)
     {
-        return OS_SEM_FAILURE;
+        return OS_Zephyr_TaskLeaveResult(OS_SEM_FAILURE);
     }
     if (!OS_Zephyr_BinSemMatches(impl, token))
     {
         k_mutex_unlock(&impl->lock);
-        return OS_ERR_INVALID_ID;
+        return OS_Zephyr_TaskLeaveResult(OS_ERR_INVALID_ID);
     }
     bin_prop->value = impl->current_value;
     k_mutex_unlock(&impl->lock);
 
-    return OS_SUCCESS;
+    return OS_Zephyr_TaskLeaveResult(OS_SUCCESS);
 }
