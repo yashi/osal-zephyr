@@ -8,6 +8,7 @@
 #include "os-shared-common.h"
 #include "os-impl-idmap.h"
 #include "os-impl-tasks.h"
+#include "os-impl-timebase.h"
 
 K_SEM_DEFINE(OS_shutdown_sem, 0, 1);
 
@@ -41,7 +42,6 @@ int32 OS_API_Impl_Init(osal_objtype_t idtype)
         case OS_OBJECT_TYPE_OS_RWLOCK:
         case OS_OBJECT_TYPE_OS_STREAM:
         case OS_OBJECT_TYPE_OS_DIR:
-        case OS_OBJECT_TYPE_OS_TIMEBASE:
         case OS_OBJECT_TYPE_OS_TIMECB:
         case OS_OBJECT_TYPE_OS_MODULE:
         case OS_OBJECT_TYPE_OS_FILESYS:
@@ -50,6 +50,13 @@ int32 OS_API_Impl_Init(osal_objtype_t idtype)
             /* No per-slot kernel objects exist until creation. The shared
              * initializer clears its records after this table lock is ready.
              * This does not provide the currently unported object operations. */
+            break;
+
+        case OS_OBJECT_TYPE_OS_TIMEBASE:
+            if (OS_Zephyr_TimeBaseAPI_Impl_Init() != OS_SUCCESS)
+            {
+                return OS_ERROR;
+            }
             break;
 
         default:

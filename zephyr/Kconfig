@@ -39,6 +39,25 @@ config CFS_OSAL_TASK_REAPER_STACK_SIZE
 	  K_KERNEL_STACK_SIZEOF usable size to OS_TaskCreate, or enable optional
 	  dynamic task stacks. Task creation with USERSPACE is unsupported.
 
+config CFS_OSAL_TIMEBASE_STACK_SIZE
+	int "OSAL timebase helper stack size"
+	default 2048
+	range 1024 65536
+	help
+	  Statically reserve this many usable bytes for each timebase helper.
+	  Include the stack needs of application timer and external-sync callbacks.
+	  Helpers and their kernel objects never allocate memory from the heap.
+
+config CFS_OSAL_TIMEBASE_PRIORITY
+	int "OSAL timebase helper native priority"
+	default 1 if NUM_PREEMPT_PRIORITIES > 1
+	default 0
+	range 0 0 if NUM_PREEMPT_PRIORITIES = 1
+	range 0 1 if NUM_PREEMPT_PRIORITIES > 1
+	help
+	  Select one of the two highest preemptible Zephyr priorities for
+	  timebase callback helpers. Lower numbers run first.
+
 module = CFS_OSAL
 module-str = cfs_osal
 source "subsys/logging/Kconfig.template.log_config"

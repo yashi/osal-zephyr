@@ -17,6 +17,7 @@ set(ZEPHYR_BASE_SRCLIST
     src/os-impl-idmap.c
     src/os-impl-mutex.c
     src/os-impl-tasks.c
+    src/os-impl-timebase.c
 )
 
 set(ZEPHYR_IMPL_SRCLIST
